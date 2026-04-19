@@ -19,3 +19,6 @@ Thumbs.db
 # Prisma local
 *.db
 *.db-journal
+
+# User uploaded files
+uploads/
