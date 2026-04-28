@@ -1,196 +1,171 @@
-# GiveChain API 문서
+# Backend API
 
 Base URL: `http://localhost:3000`
 
-모든 응답 형식:
+All successful API responses use:
+
 ```json
-{ "success": true, "data": { ... } }
-{ "success": false, "message": "오류 메시지" }
+{ "success": true, "data": {} }
 ```
 
-인증이 필요한 엔드포인트는 `Authorization: Bearer <token>` 헤더 필요.
+Error responses use:
 
----
+```json
+{ "success": false, "message": "error message" }
+```
+
+Protected endpoints require `Authorization: Bearer <token>`.
 
 ## Auth
 
 ### POST /api/auth/register
-회원가입 (rate limit: 20req/15min)
 
-**Body:**
+Registers an individual user or organization account.
+
 ```json
 {
   "email": "user@example.com",
   "password": "Password1!",
-  "nickname": "닉네임",
-  "role": "INDIVIDUAL | ORGANIZATION",
-  "orgName": "단체명 (role=ORGANIZATION 필수)"
+  "nickname": "nickname",
+  "role": "INDIVIDUAL",
+  "orgName": "Organization name",
+  "orgDescription": "Optional organization description"
 }
 ```
 
-### POST /api/auth/login
-로그인 (rate limit: 20req/15min)
+`orgName` is required when `role` is `ORGANIZATION`.
 
-**Body:**
+### POST /api/auth/login
+
 ```json
-{ "email": "user@example.com", "password": "Password1!" }
+{
+  "email": "user@example.com",
+  "password": "Password1!"
+}
 ```
 
-**Response data:** `{ token, user: { userId, email, nickname, role } }`
-
----
+Returns `{ token, userId, role }`.
 
 ## Users
 
 ### GET /api/users/me `[AUTH]`
-내 프로필 조회
 
-**Response data:** `{ id, email, nickname, role, walletAddress, createdAt, organization? }`
-
-### PATCH /api/users/me `[AUTH]`
-내 프로필 수정
-
-**Body:** `{ nickname: "새닉네임" }` (2~20자)
-
----
+Returns the authenticated user's basic information and organization status when available.
 
 ## Organizations
 
 ### GET /api/organizations
-승인된 단체 목록 조회
 
-**Response data:** `Organization[]`
+Returns approved organizations only.
 
 ### GET /api/organizations/:id
-단체 상세 조회 (승인된 세션 포함)
 
-**Response data:** `Organization & { sessions: DonationSession[] }`
+Returns an approved organization's detail and approved campaigns.
 
----
+## Campaigns
 
-## Sessions
+The code uses the existing `DonationSession` model and `/api/sessions` path for campaigns.
 
 ### GET /api/sessions
-기부 세션 전체 목록 (마감 세션 자동 CLOSED 처리)
 
-**Response data:** `DonationSession[]` (organization 포함)
+Returns approved campaigns only.
 
 ### GET /api/sessions/:id
-세션 상세 조회 (기부 내역 포함, 금액 내림차순)
 
-**Response data:** `DonationSession & { donations: DonationRecord[] }`
+Returns an approved campaign detail.
 
 ### POST /api/sessions `[AUTH, ORGANIZATION]`
-세션 생성 (단체 승인 상태 APPROVED 필수)
 
-**Body:**
+Creates a campaign. The organization must already be approved.
+
 ```json
 {
-  "title": "캠페인 제목",
-  "description": "설명 (선택)",
+  "title": "Campaign title",
+  "description": "Optional description",
   "goalAmount": 1000000,
-  "deadline": "2025-12-31T23:59:59Z"
+  "deadline": "2026-12-31T23:59:59Z"
 }
 ```
 
-**Response data:** 생성된 `DonationSession` (approvalStatus: PENDING)
-
-### POST /api/sessions/:id/plan `[AUTH, ORGANIZATION]`
-사용계획서 파일 제출 (재제출 시 approvalStatus 자동 PENDING 초기화)
-
-**Form-data:** `plan` 필드에 파일 첨부 (PDF/DOC/DOCX/HWP, 최대 10MB)
+New campaigns start with `approvalStatus: PENDING`.
 
 ### PATCH /api/sessions/:id `[AUTH, ORGANIZATION]`
-세션 수정 (본인 단체 세션, ACTIVE 상태만 가능)
 
-**Body:** `{ title?, description?, deadline? }`
+Updates an owned campaign and resets it to `PENDING`.
 
-### DELETE /api/sessions/:id `[AUTH, ORGANIZATION]`
-세션 삭제 (기부 기록 없고, COMPLETED 아닌 세션만 가능)
-
----
-
-## Donations
-
-### POST /api/donations `[AUTH, INDIVIDUAL]`
-기부 생성 (세션 approvalStatus APPROVED 필수)
-
-**Body:**
 ```json
 {
-  "sessionId": "uuid",
-  "amount": 10000,
-  "txHash": "0x..."
+  "title": "Updated title",
+  "description": "Updated description",
+  "goalAmount": 1200000,
+  "deadline": "2026-12-31T23:59:59Z"
 }
 ```
 
-### GET /api/donations/me `[AUTH]`
-내 기부 내역 조회 (최신순)
+### DELETE /api/sessions/:id `[AUTH, ORGANIZATION]`
 
-**Response data:** `DonationRecord[]` (session 정보 포함)
+Deletes an owned campaign when it has no donation records.
 
----
+### POST /api/sessions/:id/plan `[AUTH, ORGANIZATION]`
 
-## Admin `[AUTH, ADMIN]`
+Uploads a campaign plan file and resets the campaign to `PENDING`.
 
-모든 어드민 API는 ADMIN 역할 계정 필요.
-초기 어드민 계정: `npm run db:seed` 으로 생성 (`.env`의 `ADMIN_EMAIL`, `ADMIN_PASSWORD` 참조)
+Form-data field: `plan`
+
+Allowed extensions: `pdf`, `doc`, `docx`, `hwp`
+
+Max size: 10MB
+
+Uploaded files are served from `/uploads/plans/<filename>`.
+
+## Admin
+
+All admin endpoints require an `ADMIN` account.
+
+Create the initial admin account with:
+
+```bash
+npm run db:seed
+```
 
 ### GET /api/admin/organizations
-전체 단체 목록 (승인 상태 포함)
+
+Returns all organizations with approval status.
 
 ### PATCH /api/admin/organizations/:id/approve
-단체 승인
+
+Approves an organization.
 
 ### PATCH /api/admin/organizations/:id/reject
-단체 거절
 
-**Body:** `{ reason: "거절 사유" }`
+Rejects an organization.
+
+```json
+{ "reason": "Reject reason" }
+```
 
 ### GET /api/admin/sessions
-전체 기부 세션 목록 (승인 상태 포함)
+
+Returns all campaigns with approval status.
 
 ### PATCH /api/admin/sessions/:id/approve
-세션 승인 (이후 기부 가능)
+
+Approves a campaign. A plan file must be uploaded first.
 
 ### PATCH /api/admin/sessions/:id/reject
-세션 거절
 
-**Body:** `{ reason: "거절 사유" }`
+Rejects a campaign.
+
+```json
+{ "reason": "Reject reason" }
+```
 
 ### DELETE /api/admin/sessions/:id
-세션 강제 삭제 (관련 기부 기록 함께 삭제)
 
----
+Deletes a campaign and its donation records.
 
-## 파일 접근
+## Health
 
-업로드된 사용계획서: `GET /uploads/plans/<filename>`
+### GET /health
 
----
-
-## 역할별 권한 요약
-
-| 기능 | INDIVIDUAL | ORGANIZATION | ADMIN |
-|------|-----------|--------------|-------|
-| 회원가입/로그인 | ✓ | ✓ | - |
-| 내 프로필 조회/수정 | ✓ | ✓ | ✓ |
-| 세션 목록/상세 조회 | ✓ | ✓ | ✓ |
-| 세션 생성/수정/삭제 | ✗ | ✓ (승인 후) | ✗ |
-| 사용계획서 제출 | ✗ | ✓ | ✗ |
-| 기부 | ✓ | ✗ | ✗ |
-| 내 기부 내역 | ✓ | ✗ | ✗ |
-| 단체/세션 승인 관리 | ✗ | ✗ | ✓ |
-
-## 세션 상태 흐름
-
-```
-ACTIVE (생성 시)
-  → CLOSED (deadline 경과, lazy update)
-  → COMPLETED (currentAmount >= goalAmount)
-
-approvalStatus:
-  PENDING (생성/사용계획서 제출 시)
-  → APPROVED (관리자 승인, 기부 가능)
-  → REJECTED (관리자 거절, 재제출 가능)
-```
+Returns `{ "status": "ok" }`.

@@ -26,7 +26,6 @@ describe('usersService.getMe', () => {
       id: 'user-1',
       email: 'test@test.com',
       role: 'INDIVIDUAL',
-      walletAddress: null,
       createdAt: new Date(),
     };
     (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
